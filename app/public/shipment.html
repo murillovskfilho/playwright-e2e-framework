@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shipment · ShipDesk</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main style="max-width: 720px">
+    <p><a href="/">← All shipments</a></p>
+    <div class="card">
+      <h1 id="title">Shipment</h1>
+      <div role="status" id="notice" class="success" hidden></div>
+      <div role="alert" id="error" class="alert" hidden></div>
+      <dl id="details" hidden></dl>
+      <div class="actions"><button type="button" class="danger" id="cancel" hidden>Cancel shipment</button></div>
+    </div>
+  </main>
+  <script src="/common.js"></script>
+  <script>
+    const id = new URLSearchParams(location.search).get('id') || '';
+    const $ = (x) => document.getElementById(x);
+    let permissions;
+
+    function render(s) {
+      document.title = `${s.id} · ShipDesk`;
+      $('title').textContent = `Shipment ${s.id}`;
+      const rows = [
+        ['Status', STATUS_LABELS[s.status]],
+        ['Reference', s.reference],
+        ['Carrier', s.carrier],
+        ['Service level', s.serviceLevel],
+        ['Recipient', s.recipientName],
+        ['Destination ZIP', s.destinationZip],
+        ['Weight', `${s.weightOz} oz`],
+        ['Created by', s.createdBy],
+      ];
+      $('details').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join('');
+      $('details').hidden = false;
+      $('cancel').hidden = !(permissions.cancelShipment && s.status === 'LABEL_CREATED');
+    }
+
+    $('cancel').addEventListener('click', async () => {
+      if (!confirm(`Cancel shipment ${id}? This cannot be undone.`)) return;
+      const { ok, body } = await api(`/api/shipments/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+      if (!ok) {
+        $('error').textContent = (body && body.error) || 'Could not cancel the shipment.';
+        $('error').hidden = false;
+        return;
+      }
+      render(body);
+      $('notice').textContent = 'Shipment cancelled.';
+      $('notice').hidden = false;
+    });
+
+    bootstrapPage().then(async (me) => {
+      permissions = me.permissions;
+      const { ok, body } = await api(`/api/shipments/${encodeURIComponent(id)}`);
+      if (!ok) {
+        $('title').textContent = 'Shipment not found';
+        $('error').textContent = 'This shipment does not exist or you do not have access to it.';
+        $('error').hidden = false;
+        return;
+      }
+      render(body);
+      if (new URLSearchParams(location.search).get('created') === '1') {
+        $('notice').textContent = 'Shipment created.';
+        $('notice').hidden = false;
+      }
+    });
+  </script>
+</body>
+</html>

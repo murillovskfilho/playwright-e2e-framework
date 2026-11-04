@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>New shipment · ShipDesk</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main style="max-width: 720px">
+    <div class="card">
+      <h1>New shipment</h1>
+      <div role="alert" id="forbidden" class="alert" hidden>You do not have permission to create shipments.</div>
+      <div role="alert" id="form-error" class="alert" hidden></div>
+      <form id="shipment-form" novalidate hidden>
+        <label for="reference">Reference</label>
+        <input id="reference" name="reference" aria-describedby="reference-error">
+        <p class="field-error" id="reference-error"></p>
+        <div class="grid2">
+          <div>
+            <label for="carrier">Carrier</label>
+            <select id="carrier" name="carrier" aria-describedby="carrier-error"><option value="">Select…</option></select>
+            <p class="field-error" id="carrier-error"></p>
+          </div>
+          <div>
+            <label for="serviceLevel">Service level</label>
+            <select id="serviceLevel" name="serviceLevel" aria-describedby="serviceLevel-error"><option value="">Select…</option></select>
+            <p class="field-error" id="serviceLevel-error"></p>
+          </div>
+        </div>
+        <label for="recipientName">Recipient name</label>
+        <input id="recipientName" name="recipientName" autocomplete="off" aria-describedby="recipientName-error">
+        <p class="field-error" id="recipientName-error"></p>
+        <div class="grid2">
+          <div>
+            <label for="destinationZip">Destination ZIP</label>
+            <input id="destinationZip" name="destinationZip" inputmode="numeric" aria-describedby="destinationZip-error">
+            <p class="field-error" id="destinationZip-error"></p>
+          </div>
+          <div>
+            <label for="weightOz">Weight (oz)</label>
+            <input id="weightOz" name="weightOz" inputmode="decimal" aria-describedby="weightOz-error">
+            <p class="field-error" id="weightOz-error"></p>
+          </div>
+        </div>
+        <div class="actions">
+          <button type="submit">Create shipment</button>
+          <a href="/" class="button secondary">Back to list</a>
+        </div>
+      </form>
+    </div>
+  </main>
+  <script src="/common.js"></script>
+  <script>
+    const form = document.getElementById('shipment-form');
+    const FIELDS = ['reference', 'carrier', 'serviceLevel', 'recipientName', 'destinationZip', 'weightOz'];
+
+    function showErrors(errors) {
+      for (const field of FIELDS) {
+        const message = errors[field] || '';
+        document.getElementById(`${field}-error`).textContent = message;
+        form.elements[field].setAttribute('aria-invalid', message ? 'true' : 'false');
+      }
+    }
+
+    Promise.all([bootstrapPage(), api('/api/meta')]).then(([{ permissions }, meta]) => {
+      if (!permissions.createShipment) {
+        document.getElementById('forbidden').hidden = false;
+        return;
+      }
+      for (const c of meta.body.carriers) form.carrier.insertAdjacentHTML('beforeend', `<option>${c}</option>`);
+      for (const s of meta.body.serviceLevels) form.serviceLevel.insertAdjacentHTML('beforeend', `<option>${s}</option>`);
+      form.hidden = false;
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const formError = document.getElementById('form-error');
+      formError.hidden = true;
+      const payload = Object.fromEntries(FIELDS.map((f) => [f, form.elements[f].value]));
+      const button = form.querySelector('button[type=submit]');
+      button.disabled = true;
+      const { status, body } = await api('/api/shipments', { method: 'POST', body: JSON.stringify(payload) });
+      button.disabled = false;
+      if (status === 201) {
+        location.assign(`/shipment?id=${encodeURIComponent(body.id)}&created=1`);
+        return;
+      }
+      showErrors((body && body.errors) || {});
+      formError.textContent = status === 422 ? 'Please fix the errors below.' : (body && body.error) || 'Something went wrong.';
+      formError.hidden = false;
+    });
+  </script>
+</body>
+</html>

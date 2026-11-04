@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shipments · ShipDesk</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main>
+    <div style="display:flex; justify-content:space-between; align-items:center">
+      <h1>Shipments</h1>
+      <a class="button" id="new-shipment" href="/new" hidden>New shipment</a>
+    </div>
+    <form class="toolbar" role="search" id="filters">
+      <div>
+        <label for="q">Search</label>
+        <input id="q" name="q" type="search" placeholder="ID, reference, recipient or ZIP">
+      </div>
+      <div style="max-width: 220px">
+        <label for="status">Status</label>
+        <select id="status" name="status"><option value="">All statuses</option></select>
+      </div>
+    </form>
+    <p role="status" id="loading">Loading shipments…</p>
+    <div role="alert" id="list-error" class="alert" hidden>
+      Could not load shipments.
+      <button type="button" class="secondary" id="retry">Try again</button>
+    </div>
+    <table id="shipments" hidden>
+      <caption id="summary"></caption>
+      <thead>
+        <tr><th scope="col">ID</th><th scope="col">Reference</th><th scope="col">Recipient</th><th scope="col">Carrier</th><th scope="col">Status</th><th scope="col">Created</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p id="empty" hidden>No shipments match your filters.</p>
+    <nav class="pagination" aria-label="Pagination" id="pagination" hidden>
+      <button type="button" class="secondary" id="prev">Previous</button>
+      <span id="page-info"></span>
+      <button type="button" class="secondary" id="next">Next</button>
+    </nav>
+  </main>
+  <script src="/common.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const state = { q: params.get('q') || '', status: params.get('status') || '', page: Number(params.get('page')) || 1 };
+    const $ = (id) => document.getElementById(id);
+    let requestSeq = 0;
+
+    for (const [value, label] of Object.entries(STATUS_LABELS)) {
+      $('status').insertAdjacentHTML('beforeend', `<option value="${value}">${label}</option>`);
+    }
+    $('q').value = state.q;
+    $('status').value = state.status;
+
+    async function load() {
+      const seq = ++requestSeq;
+      const query = new URLSearchParams({ q: state.q, status: state.status, page: String(state.page) });
+      // Keep the address bar clean and shareable: only the filters that are actually set.
+      const visible = new URLSearchParams();
+      if (state.q) visible.set('q', state.q);
+      if (state.status) visible.set('status', state.status);
+      if (state.page > 1) visible.set('page', String(state.page));
+      history.replaceState(null, '', visible.size ? `/?${visible}` : '/');
+      $('loading').hidden = false;
+      $('list-error').hidden = true;
+      let result;
+      try {
+        result = await api(`/api/shipments?${query}`);
+      } catch {
+        result = { ok: false };
+      }
+      if (seq !== requestSeq) return; // a newer search started: drop this stale response
+      $('loading').hidden = true;
+      if (!result.ok) {
+        $('shipments').hidden = true;
+        $('pagination').hidden = true;
+        $('empty').hidden = true;
+        $('list-error').hidden = false;
+        return;
+      }
+      render(result.body);
+    }
+
+    function render({ items, page, totalPages, total }) {
+      state.page = page;
+      $('shipments').querySelector('tbody').innerHTML = items
+        .map(
+          (s) => `<tr>
+            <td><a href="/shipment?id=${encodeURIComponent(s.id)}">${escapeHtml(s.id)}</a></td>
+            <td>${escapeHtml(s.reference)}</td>
+            <td>${escapeHtml(s.recipientName)}</td>
+            <td>${escapeHtml(s.carrier)}</td>
+            <td>${STATUS_LABELS[s.status]}</td>
+            <td>${new Date(s.createdAt).toISOString().slice(0, 10)}</td>
+          </tr>`,
+        )
+        .join('');
+      $('summary').textContent = `${total} shipment${total === 1 ? '' : 's'}`;
+      $('shipments').hidden = items.length === 0;
+      $('empty').hidden = items.length > 0;
+      $('pagination').hidden = items.length === 0;
+      $('page-info').textContent = `Page ${page} of ${totalPages}`;
+      $('prev').disabled = page <= 1;
+      $('next').disabled = page >= totalPages;
+    }
+
+    let debounce;
+    $('q').addEventListener('input', () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => { state.q = $('q').value.trim(); state.page = 1; load(); }, 250);
+    });
+    $('status').addEventListener('change', () => { state.status = $('status').value; state.page = 1; load(); });
+    $('filters').addEventListener('submit', (e) => e.preventDefault());
+    $('prev').addEventListener('click', () => { state.page--; load(); });
+    $('next').addEventListener('click', () => { state.page++; load(); });
+    $('retry').addEventListener('click', load);
+
+    bootstrapPage().then(({ permissions }) => {
+      $('new-shipment').hidden = !permissions.createShipment;
+      load();
+    });
+  </script>
+</body>
+</html>
